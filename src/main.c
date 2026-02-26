@@ -36,7 +36,7 @@
 
 // --- PROTOTYPES ------------>
 
-void DrawBranch(float x, float y, float length, float angle, float thickness, float spreadAngle, int branchCount, int depth, Color color);
+void DrawBranch(float x, float y, float length, float angle, float thickness, float spreadAngle, int branchCount, int depth);
 void RedrawTree(RenderTexture2D target, float spreadAngle, int branchCount);
 
 // --- ENTRY POINT ------------>
@@ -154,7 +154,7 @@ void RedrawTree(RenderTexture2D target, float spreadAngle, int branchCount)
 	@param depth        Current recursion depth (0 = trunk)
 	@param color        Color of the branch (unused, derived from depth internally)
 */
-void DrawBranch(float x, float y, float length, float angle, float thickness, float spreadAngle, int branchCount, int depth, Color color)
+void DrawBranch(float x, float y, float length, float angle, float thickness, float spreadAngle, int branchCount, int depth)
 {
 	float x_end = x + sinf(angle) * length;
 	float y_end = y - cosf(angle) * length;
