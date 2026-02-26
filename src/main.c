@@ -30,24 +30,41 @@
 #define ANGLE_JITTER RAD(8)
 #define LENGTH_JITTER 0.15f
 
-#define TRUNK_COLOR (Color){101, 67, 33, 255}
-#define LEAF_COLOR (Color){34, 139, 34, 255}
 #define MAX_DEPTH 12
-
-#define WIND_BASE RAD(0.8f)
-#define WIND_GUST_STRENGTH RAD(5.0f)
-#define WIND_FREQ 0.5f
-#define WIND_PHASE_OFFSET 0.4f
-#define WIND_DEPTH_SCALE 0.25f
-
-// Auto depth cap to keep performance reasonable at high branch counts
 #define AUTO_DEPTH_CAP(bc) ((bc) <= 2 ? MAX_DEPTH : (bc) <= 3 ? 8 \
 												: (bc) <= 4	  ? 6 \
 															  : 5)
 
+// Wind
+#define WIND_BASE RAD(1.5f)
+#define WIND_GUST_STRENGTH RAD(3.0f)
+#define WIND_FREQ 1.2f
+#define WIND_PHASE_OFFSET 0.4f
+#define WIND_DEPTH_SCALE 0.25f
+
+// Seasons
+#define CYCLE_DURATION 120.0f // seconds for one full cycle
+#define NUM_SEASONS 4
+
+typedef struct
+{
+	Color trunk;
+	Color leaf;
+	const char *name;
+} Season;
+
+static const Season SEASONS[NUM_SEASONS] = {
+	{(Color){133, 94, 66, 255}, (Color){255, 182, 193, 255}, "Spring"},	  // pink blossom
+	{(Color){101, 67, 33, 255}, (Color){34, 139, 34, 255}, "Summer"},	  // forest green
+	{(Color){90, 60, 30, 255}, (Color){204, 85, 0, 255}, "Autumn"},		  // burnt orange
+	{(Color){100, 100, 110, 255}, (Color){220, 235, 245, 255}, "Winter"}, // icy white
+};
+
 // --- PROTOTYPES ------------>
 
-void DrawBranch(float x, float y, float length, float angle, float thickness, float spreadAngle, int branchCount, int depth, int maxDepth, float wind, float time);
+void DrawBranch(float x, float y, float length, float angle, float thickness,
+				float spreadAngle, int branchCount, int depth, int maxDepth,
+				float wind, float t, Color trunkColor, Color leafColor);
 
 // --- ENTRY POINT ------------>
 
@@ -59,7 +76,6 @@ int main(void)
 	float spreadAngle = INITIAL_SPREAD_ANGLE;
 	int branchCount = INITIAL_BRANCH_COUNT;
 
-	// Store per-branch jitter offsets so they don't change every frame
 	unsigned int seed = (unsigned int)time(NULL);
 	srand(seed);
 
@@ -108,16 +124,26 @@ int main(void)
 			srand(seed);
 		}
 
-		// --- WIND ------------>
+		// --- SEASON ------------>
 
 		float t = (float)GetTime();
-		float gust = sinf(t * 0.2f) * sinf(t * 0.5f) * sinf(t * 1.1f); // many frequencies = irregular gusts
+		float cycle = fmodf(t, CYCLE_DURATION) / CYCLE_DURATION; // 0.0 to 1.0
+		float sSweep = cycle * NUM_SEASONS;						 // 0.0 to 4.0
+		int sIdx = (int)sSweep % NUM_SEASONS;
+		int sNext = (sIdx + 1) % NUM_SEASONS;
+		float sBlend = sSweep - (int)sSweep; // 0.0 to 1.0 within season
+
+		Color trunkColor = ColorLerp(SEASONS[sIdx].trunk, SEASONS[sNext].trunk, sBlend);
+		Color leafColor = ColorLerp(SEASONS[sIdx].leaf, SEASONS[sNext].leaf, sBlend);
+
+		// --- WIND ------------>
+
+		float gust = sinf(t * 0.7f) * sinf(t * 1.3f);
 		float wind = WIND_BASE + gust * WIND_GUST_STRENGTH;
 
 		// --- DRAW ------------>
 
-		// Reset rand to same seed each frame so jitter is stable
-		srand(seed);
+		srand(seed); // reset rand so jitter is stable across frames
 
 		BeginDrawing();
 		ClearBackground(BLACK);
@@ -127,11 +153,25 @@ int main(void)
 			INITIAL_LENGTH, 0.0f, INITIAL_THICKNESS,
 			spreadAngle, branchCount, 0,
 			AUTO_DEPTH_CAP(branchCount),
-			wind, t);
+			wind, t,
+			trunkColor, leafColor);
 
-		DrawText(TextFormat("Spread: %.0f deg (UP/DOWN)", spreadAngle / DEG2RAD), 10, 10, 18, GRAY);
-		DrawText(TextFormat("Branches: %d (W/S)", branchCount), 10, 32, 18, GRAY);
-		DrawText("SPACE: new tree   R: reset", 10, 54, 18, GRAY);
+		// HUD
+		DrawText(TextFormat("Spread: %.0f deg (UP/DOWN)", spreadAngle / DEG2RAD),
+				 10, 10, 18, GRAY);
+		DrawText(TextFormat("Branches: %d (W/S)", branchCount),
+				 10, 32, 18, GRAY);
+		DrawText("SPACE: new tree   R: reset",
+				 10, 54, 18, GRAY);
+
+		// Season indicator
+		DrawText(TextFormat("%s -> %s", SEASONS[sIdx].name, SEASONS[sNext].name),
+				 WIDTH - 160, 10, 18, GRAY);
+
+		// Season progress bar
+		DrawRectangle(WIDTH - 160, 34, 150, 8, DARKGRAY);
+		DrawRectangle(WIDTH - 160, 34, (int)(sBlend * 150), 8, LIGHTGRAY);
+
 		EndDrawing();
 	}
 
@@ -141,7 +181,9 @@ int main(void)
 
 // --- IMPLEMENTATIONS ------------>
 
-void DrawBranch(float x, float y, float length, float angle, float thickness, float spreadAngle, int branchCount, int depth, int maxDepth, float wind, float t)
+void DrawBranch(float x, float y, float length, float angle, float thickness,
+				float spreadAngle, int branchCount, int depth, int maxDepth,
+				float wind, float t, Color trunkColor, Color leafColor)
 {
 	float x_end = x + sinf(angle) * length;
 	float y_end = y - cosf(angle) * length;
@@ -149,7 +191,7 @@ void DrawBranch(float x, float y, float length, float angle, float thickness, fl
 	float color_t = (float)depth / (float)MAX_DEPTH;
 	if (color_t > 1.0f)
 		color_t = 1.0f;
-	Color branch_color = ColorLerp(TRUNK_COLOR, LEAF_COLOR, color_t);
+	Color branch_color = ColorLerp(trunkColor, leafColor, color_t);
 
 	DrawLineEx((Vector2){x, y}, (Vector2){x_end, y_end}, thickness, branch_color);
 
@@ -159,7 +201,6 @@ void DrawBranch(float x, float y, float length, float angle, float thickness, fl
 	if (new_length < LENGTH_LIMIT || new_thickness < 1.0f || depth >= maxDepth)
 		return;
 
-	// Sway increases with depth, and each level lags behind by WIND_PHASE_OFFSET
 	float sway = wind * sinf(t * WIND_FREQ + depth * WIND_PHASE_OFFSET) * (1.0f + depth * WIND_DEPTH_SCALE);
 
 	for (int i = 0; i < branchCount; i++)
@@ -174,6 +215,8 @@ void DrawBranch(float x, float y, float length, float angle, float thickness, fl
 		child_angle += RAND_F() * ANGLE_JITTER;
 		child_angle += sway;
 
-		DrawBranch(x_end, y_end, new_length, child_angle, new_thickness, spreadAngle, branchCount, depth + 1, maxDepth, wind, t);
+		DrawBranch(x_end, y_end, new_length, child_angle, new_thickness,
+				   spreadAngle, branchCount, depth + 1, maxDepth,
+				   wind, t, trunkColor, leafColor);
 	}
 }
