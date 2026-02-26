@@ -17,14 +17,18 @@
 #define SPREAD_ANGLE_MIN RAD(1)
 #define SPREAD_ANGLE_MAX RAD(90)
 
+#define INITIAL_BRANCH_COUNT 2
+#define BRANCH_COUNT_MIN 1
+#define BRANCH_COUNT_MAX 6
+
 #define LENGTH_REDUCTION_RATIO 0.75f
 #define THICKNESS_REDUCTION_RATIO 0.75f
 #define LENGTH_LIMIT (INITIAL_LENGTH * 0.1f)
 
 // --- PROTOTYPES ------------>
 
-void DrawBranch(float x, float y, float length, float angle, float thickness, float spreadAngle, Color color);
-void RedrawTree(RenderTexture2D target, float spreadAngle);
+void DrawBranch(float x, float y, float length, float angle, float thickness, float spreadAngle, int branchCount, Color color);
+void RedrawTree(RenderTexture2D target, float spreadAngle, int branchCount);
 
 // --- ENTRY POINT ------------>
 
@@ -34,9 +38,10 @@ int main(void)
 	SetTargetFPS(60);
 
 	float spreadAngle = INITIAL_SPREAD_ANGLE;
+	int branchCount = INITIAL_BRANCH_COUNT;
 
 	RenderTexture2D target = LoadRenderTexture(WIDTH, HEIGHT);
-	RedrawTree(target, spreadAngle);
+	RedrawTree(target, spreadAngle, branchCount);
 
 	while (!WindowShouldClose())
 	{
@@ -44,6 +49,7 @@ int main(void)
 
 		bool changed = false;
 
+		// Spread angle — arrow keys
 		if (IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_RIGHT))
 		{
 			spreadAngle += SPREAD_ANGLE_STEP;
@@ -58,14 +64,31 @@ int main(void)
 				spreadAngle = SPREAD_ANGLE_MIN;
 			changed = true;
 		}
+
+		// Branch count — W/S keys
+		if (IsKeyPressed(KEY_W))
+		{
+			if (branchCount < BRANCH_COUNT_MAX)
+				branchCount++;
+			changed = true;
+		}
+		if (IsKeyPressed(KEY_S))
+		{
+			if (branchCount > BRANCH_COUNT_MIN)
+				branchCount--;
+			changed = true;
+		}
+
+		// Reset — R
 		if (IsKeyPressed(KEY_R))
 		{
 			spreadAngle = INITIAL_SPREAD_ANGLE;
+			branchCount = INITIAL_BRANCH_COUNT;
 			changed = true;
 		}
 
 		if (changed)
-			RedrawTree(target, spreadAngle);
+			RedrawTree(target, spreadAngle, branchCount);
 
 		// --- DRAW ------------>
 
@@ -75,7 +98,10 @@ int main(void)
 			(Rectangle){0, 0, WIDTH, -HEIGHT},
 			(Vector2){0, 0},
 			WHITE);
-		DrawText(TextFormat("Spread Angle: %.0f deg  (UP/DOWN to change, R to reset)", spreadAngle / DEG2RAD), 10, 10, 18, GRAY);
+		DrawText(TextFormat("Spread: %.0f deg (UP/DOWN)", spreadAngle / DEG2RAD),
+				 10, 10, 18, GRAY);
+		DrawText(TextFormat("Branches: %d (W/S)  R to reset", branchCount),
+				 10, 32, 18, GRAY);
 		EndDrawing();
 	}
 
@@ -87,11 +113,11 @@ int main(void)
 
 // --- IMPLEMENTATIONS ------------>
 
-void RedrawTree(RenderTexture2D target, float spreadAngle)
+void RedrawTree(RenderTexture2D target, float spreadAngle, int branchCount)
 {
 	BeginTextureMode(target);
 	ClearBackground(BLACK);
-	DrawBranch(WIDTH / 2, HEIGHT - 20, INITIAL_LENGTH, 0.0f, INITIAL_THICKNESS, spreadAngle, BRANCH_COLOR);
+	DrawBranch(WIDTH / 2, HEIGHT - 20, INITIAL_LENGTH, 0.0f, INITIAL_THICKNESS, spreadAngle, branchCount, BRANCH_COLOR);
 	EndTextureMode();
 }
 
@@ -101,10 +127,11 @@ void RedrawTree(RenderTexture2D target, float spreadAngle)
 	@param length Length of the branch
 	@param angle Angle of the branch from the vertical
 	@param thickness Thickness of the branch
-	@param spreadAngle Angle by which child branches deviate from parent
+	@param spreadAngle Half-arc within which child branches are distributed
+	@param branchCount Number of child branches to spawn
 	@param color Color of the branch
 */
-void DrawBranch(float x, float y, float length, float angle, float thickness, float spreadAngle, Color color)
+void DrawBranch(float x, float y, float length, float angle, float thickness, float spreadAngle, int branchCount, Color color)
 {
 	float x_end = x + sinf(angle) * length;
 	float y_end = y - cosf(angle) * length;
@@ -117,6 +144,15 @@ void DrawBranch(float x, float y, float length, float angle, float thickness, fl
 	if (new_length < LENGTH_LIMIT || new_thickness < 1.0f)
 		return;
 
-	DrawBranch(x_end, y_end, new_length, angle + spreadAngle, new_thickness, spreadAngle, color);
-	DrawBranch(x_end, y_end, new_length, angle - spreadAngle, new_thickness, spreadAngle, color);
+	for (int i = 0; i < branchCount; i++)
+	{
+		float child_angle;
+
+		if (branchCount == 1)
+			child_angle = angle; // straight up, no spread
+		else
+			child_angle = angle + spreadAngle * (i - (branchCount - 1) / 2.0f) * (2.0f / (branchCount - 1));
+
+		DrawBranch(x_end, y_end, new_length, child_angle, new_thickness, spreadAngle, branchCount, color);
+	}
 }
