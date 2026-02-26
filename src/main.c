@@ -39,8 +39,11 @@ int main(void)
 
 void DrawBranch(float x, float y, float length, float angle, float thickness)
 {
+	float x_end = x + sinf(angle) * length;
+	float y_end = y - cosf(angle) * length;
+
 	Vector2 start = {x, y};
-	Vector2 end = {x, y - length};
+	Vector2 end = {x_end, y_end};
 
 	DrawLineEx(start, end, thickness, BRANCH_COLOR);
 }
