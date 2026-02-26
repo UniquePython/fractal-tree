@@ -1,6 +1,7 @@
 # Compiler and flags
 CC := gcc
 CFLAGS := -Wall -Wextra -Iinclude
+LDFLAGS := -lraylib -lGL -lm -lpthread -ldl -lrt -lX11
 DEBUGFLAGS := -g
 RELEASEFLAGS := -O2
 
@@ -39,7 +40,7 @@ debug: dirs $(BIN_DIR)/$(TARGET)
 # Build executable
 # -----------------------------
 $(BIN_DIR)/$(TARGET): $(OBJS)
-	$(CC) $(OBJS) -o $@
+	$(CC) $(OBJS) -o $@ $(LDFLAGS)
 
 # -----------------------------
 # Build object files with dependency tracking
