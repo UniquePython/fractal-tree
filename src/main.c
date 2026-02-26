@@ -1,4 +1,3 @@
-#include <stdio.h>
 #include <raylib.h>
 #include <math.h>
 
@@ -7,29 +6,80 @@
 #define WIDTH 900
 #define HEIGHT 600
 
-#define BRANCH_COLOR BLACK
-#define INITIAL_THICKNESS 20
+#define RAD(angle) ((angle) * DEG2RAD)
+
+#define BRANCH_COLOR RAYWHITE
+#define INITIAL_THICKNESS 15
+#define INITIAL_LENGTH 150
+
+#define INITIAL_SPREAD_ANGLE RAD(20)
+#define SPREAD_ANGLE_STEP RAD(5)
+#define SPREAD_ANGLE_MIN RAD(1)
+#define SPREAD_ANGLE_MAX RAD(90)
+
+#define LENGTH_REDUCTION_RATIO 0.75f
+#define THICKNESS_REDUCTION_RATIO 0.75f
+#define LENGTH_LIMIT (INITIAL_LENGTH * 0.1f)
 
 // --- PROTOTYPES ------------>
 
-void DrawBranch(float, float, float, float, float);
+void DrawBranch(float x, float y, float length, float angle, float thickness, float spreadAngle, Color color);
+void RedrawTree(RenderTexture2D target, float spreadAngle);
 
 // --- ENTRY POINT ------------>
 
 int main(void)
 {
 	InitWindow(WIDTH, HEIGHT, "Fractal Tree");
+	SetTargetFPS(60);
 
-	SetTargetFPS(1);
+	float spreadAngle = INITIAL_SPREAD_ANGLE;
+
+	RenderTexture2D target = LoadRenderTexture(WIDTH, HEIGHT);
+	RedrawTree(target, spreadAngle);
 
 	while (!WindowShouldClose())
 	{
+		// --- INPUT ------------>
+
+		bool changed = false;
+
+		if (IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_RIGHT))
+		{
+			spreadAngle += SPREAD_ANGLE_STEP;
+			if (spreadAngle > SPREAD_ANGLE_MAX)
+				spreadAngle = SPREAD_ANGLE_MAX;
+			changed = true;
+		}
+		if (IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_LEFT))
+		{
+			spreadAngle -= SPREAD_ANGLE_STEP;
+			if (spreadAngle < SPREAD_ANGLE_MIN)
+				spreadAngle = SPREAD_ANGLE_MIN;
+			changed = true;
+		}
+		if (IsKeyPressed(KEY_R))
+		{
+			spreadAngle = INITIAL_SPREAD_ANGLE;
+			changed = true;
+		}
+
+		if (changed)
+			RedrawTree(target, spreadAngle);
+
+		// --- DRAW ------------>
+
 		BeginDrawing();
-		ClearBackground(WHITE);
-		DrawBranch(WIDTH / 2, HEIGHT - 20, 300, 0, INITIAL_THICKNESS);
+		DrawTextureRec(
+			target.texture,
+			(Rectangle){0, 0, WIDTH, -HEIGHT},
+			(Vector2){0, 0},
+			WHITE);
+		DrawText(TextFormat("Spread Angle: %.0f deg  (UP/DOWN to change, R to reset)", spreadAngle / DEG2RAD), 10, 10, 18, GRAY);
 		EndDrawing();
 	}
 
+	UnloadRenderTexture(target);
 	CloseWindow();
 
 	return 0;
@@ -37,13 +87,36 @@ int main(void)
 
 // --- IMPLEMENTATIONS ------------>
 
-void DrawBranch(float x, float y, float length, float angle, float thickness)
+void RedrawTree(RenderTexture2D target, float spreadAngle)
+{
+	BeginTextureMode(target);
+	ClearBackground(BLACK);
+	DrawBranch(WIDTH / 2, HEIGHT - 20, INITIAL_LENGTH, 0.0f, INITIAL_THICKNESS, spreadAngle, BRANCH_COLOR);
+	EndTextureMode();
+}
+
+/*
+	@param x Starting x position
+	@param y Starting y position
+	@param length Length of the branch
+	@param angle Angle of the branch from the vertical
+	@param thickness Thickness of the branch
+	@param spreadAngle Angle by which child branches deviate from parent
+	@param color Color of the branch
+*/
+void DrawBranch(float x, float y, float length, float angle, float thickness, float spreadAngle, Color color)
 {
 	float x_end = x + sinf(angle) * length;
 	float y_end = y - cosf(angle) * length;
 
-	Vector2 start = {x, y};
-	Vector2 end = {x_end, y_end};
+	DrawLineEx((Vector2){x, y}, (Vector2){x_end, y_end}, thickness, color);
 
-	DrawLineEx(start, end, thickness, BRANCH_COLOR);
+	float new_length = length * LENGTH_REDUCTION_RATIO;
+	float new_thickness = thickness * THICKNESS_REDUCTION_RATIO;
+
+	if (new_length < LENGTH_LIMIT || new_thickness < 1.0f)
+		return;
+
+	DrawBranch(x_end, y_end, new_length, angle + spreadAngle, new_thickness, spreadAngle, color);
+	DrawBranch(x_end, y_end, new_length, angle - spreadAngle, new_thickness, spreadAngle, color);
 }
