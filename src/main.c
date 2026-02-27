@@ -3,8 +3,6 @@
 #include <stdlib.h>
 #include <time.h>
 
-// --- CONSTANTS ------------>
-
 #define WIDTH 900
 #define HEIGHT 600
 
@@ -35,16 +33,19 @@
 												: (bc) <= 4	  ? 6 \
 															  : 5)
 
-// Wind
 #define WIND_BASE RAD(1.5f)
 #define WIND_GUST_STRENGTH RAD(3.0f)
 #define WIND_FREQ 1.2f
 #define WIND_PHASE_OFFSET 0.4f
 #define WIND_DEPTH_SCALE 0.25f
 
-// Seasons
-#define CYCLE_DURATION 120.0f // seconds for one full cycle
+#define CYCLE_DURATION 120.0f
 #define NUM_SEASONS 4
+
+#define LEAF_CLUSTER_RADIUS 18.0f
+#define LEAF_CLUSTER_COUNT 6
+#define LEAF_CLUSTER_SPREAD 12.0f
+#define LEAF_ALPHA 180
 
 typedef struct
 {
@@ -54,17 +55,19 @@ typedef struct
 } Season;
 
 static const Season SEASONS[NUM_SEASONS] = {
-	{(Color){133, 94, 66, 255}, (Color){255, 182, 193, 255}, "Spring"},	  // pink blossom
-	{(Color){101, 67, 33, 255}, (Color){34, 139, 34, 255}, "Summer"},	  // forest green
-	{(Color){90, 60, 30, 255}, (Color){204, 85, 0, 255}, "Autumn"},		  // burnt orange
-	{(Color){100, 100, 110, 255}, (Color){220, 235, 245, 255}, "Winter"}, // icy white
+	{(Color){133, 94, 66, 255}, (Color){255, 182, 193, 255}, "Spring"},
+	{(Color){101, 67, 33, 255}, (Color){34, 139, 34, 255}, "Summer"},
+	{(Color){90, 60, 30, 255}, (Color){204, 85, 0, 255}, "Autumn"},
+	{(Color){100, 100, 110, 255}, (Color){220, 235, 245, 255}, "Winter"},
 };
 
 // --- PROTOTYPES ------------>
 
+float HashF(int seed, int idx);
+void DrawLeafCluster(float x, float y, Color leafColor, float wind, float t, int depth, int seed, float clusterAlpha);
 void DrawBranch(float x, float y, float length, float angle, float thickness,
 				float spreadAngle, int branchCount, int depth, int maxDepth,
-				float wind, float t, Color trunkColor, Color leafColor);
+				float wind, float t, Color trunkColor, Color leafColor, float clusterAlpha, int parentSeed);
 
 // --- ENTRY POINT ------------>
 
@@ -127,14 +130,22 @@ int main(void)
 		// --- SEASON ------------>
 
 		float t = (float)GetTime();
-		float cycle = fmodf(t, CYCLE_DURATION) / CYCLE_DURATION; // 0.0 to 1.0
-		float sSweep = cycle * NUM_SEASONS;						 // 0.0 to 4.0
+		float cycle = fmodf(t, CYCLE_DURATION) / CYCLE_DURATION;
+		float sSweep = cycle * NUM_SEASONS;
 		int sIdx = (int)sSweep % NUM_SEASONS;
 		int sNext = (sIdx + 1) % NUM_SEASONS;
-		float sBlend = sSweep - (int)sSweep; // 0.0 to 1.0 within season
+		float sBlend = sSweep - (int)sSweep;
 
 		Color trunkColor = ColorLerp(SEASONS[sIdx].trunk, SEASONS[sNext].trunk, sBlend);
 		Color leafColor = ColorLerp(SEASONS[sIdx].leaf, SEASONS[sNext].leaf, sBlend);
+
+		float clusterAlpha;
+		if (sIdx == 2 && sNext == 3)
+			clusterAlpha = 1.0f - sBlend; // autumn -> winter
+		else if (sIdx == 3 && sNext == 0)
+			clusterAlpha = sBlend; // winter -> spring
+		else
+			clusterAlpha = 1.0f;
 
 		// --- WIND ------------>
 
@@ -143,7 +154,7 @@ int main(void)
 
 		// --- DRAW ------------>
 
-		srand(seed); // reset rand so jitter is stable across frames
+		srand(seed);
 
 		BeginDrawing();
 		ClearBackground(BLACK);
@@ -153,22 +164,12 @@ int main(void)
 			INITIAL_LENGTH, 0.0f, INITIAL_THICKNESS,
 			spreadAngle, branchCount, 0,
 			AUTO_DEPTH_CAP(branchCount),
-			wind, t,
-			trunkColor, leafColor);
+			wind, t, trunkColor, leafColor, clusterAlpha, (int)seed);
 
-		// HUD
-		DrawText(TextFormat("Spread: %.0f deg (UP/DOWN)", spreadAngle / DEG2RAD),
-				 10, 10, 18, GRAY);
-		DrawText(TextFormat("Branches: %d (W/S)", branchCount),
-				 10, 32, 18, GRAY);
-		DrawText("SPACE: new tree   R: reset",
-				 10, 54, 18, GRAY);
-
-		// Season indicator
-		DrawText(TextFormat("%s -> %s", SEASONS[sIdx].name, SEASONS[sNext].name),
-				 WIDTH - 160, 10, 18, GRAY);
-
-		// Season progress bar
+		DrawText(TextFormat("Spread: %.0f deg (UP/DOWN)", spreadAngle / DEG2RAD), 10, 10, 18, GRAY);
+		DrawText(TextFormat("Branches: %d (W/S)", branchCount), 10, 32, 18, GRAY);
+		DrawText("SPACE: new tree   R: reset", 10, 54, 18, GRAY);
+		DrawText(TextFormat("%s -> %s", SEASONS[sIdx].name, SEASONS[sNext].name), WIDTH - 160, 10, 18, GRAY);
 		DrawRectangle(WIDTH - 160, 34, 150, 8, DARKGRAY);
 		DrawRectangle(WIDTH - 160, 34, (int)(sBlend * 150), 8, LIGHTGRAY);
 
@@ -181,9 +182,34 @@ int main(void)
 
 // --- IMPLEMENTATIONS ------------>
 
+float HashF(int seed, int idx)
+{
+	int h = seed * 2749 + idx * 1013;
+	h = (h ^ (h >> 13)) * 1540483477;
+	h = h ^ (h >> 15);
+	return (float)(h & 0xFFFF) / 65535.0f * 2.0f - 1.0f;
+}
+
+void DrawLeafCluster(float x, float y, Color leafColor, float wind, float t, int depth, int seed, float clusterAlpha)
+{
+	float sway = wind * sinf(t * WIND_FREQ + depth * WIND_PHASE_OFFSET) * (1.0f + depth * WIND_DEPTH_SCALE);
+
+	for (int i = 0; i < LEAF_CLUSTER_COUNT; i++)
+	{
+		float ox = HashF(seed, i * 2) * LEAF_CLUSTER_SPREAD + sway * 8.0f;
+		float oy = HashF(seed, i * 2 + 1) * LEAF_CLUSTER_SPREAD;
+		float r = LEAF_CLUSTER_RADIUS * (0.5f + (HashF(seed, i * 3) + 1.0f) * 0.35f);
+
+		Color c = leafColor;
+		c.a = (unsigned char)(LEAF_ALPHA * clusterAlpha);
+
+		DrawCircle((int)(x + ox), (int)(y + oy), r, c);
+	}
+}
+
 void DrawBranch(float x, float y, float length, float angle, float thickness,
 				float spreadAngle, int branchCount, int depth, int maxDepth,
-				float wind, float t, Color trunkColor, Color leafColor)
+				float wind, float t, Color trunkColor, Color leafColor, float clusterAlpha, int parentSeed)
 {
 	float x_end = x + sinf(angle) * length;
 	float y_end = y - cosf(angle) * length;
@@ -199,7 +225,11 @@ void DrawBranch(float x, float y, float length, float angle, float thickness,
 	float new_thickness = thickness * THICKNESS_REDUCTION_RATIO;
 
 	if (new_length < LENGTH_LIMIT || new_thickness < 1.0f || depth >= maxDepth)
+	{
+		if (clusterAlpha > 0.0f)
+			DrawLeafCluster(x_end, y_end, leafColor, wind, t, depth, parentSeed, clusterAlpha);
 		return;
+	}
 
 	float sway = wind * sinf(t * WIND_FREQ + depth * WIND_PHASE_OFFSET) * (1.0f + depth * WIND_DEPTH_SCALE);
 
@@ -215,8 +245,10 @@ void DrawBranch(float x, float y, float length, float angle, float thickness,
 		child_angle += RAND_F() * ANGLE_JITTER;
 		child_angle += sway;
 
+		int childSeed = parentSeed * 31 + i;
+
 		DrawBranch(x_end, y_end, new_length, child_angle, new_thickness,
 				   spreadAngle, branchCount, depth + 1, maxDepth,
-				   wind, t, trunkColor, leafColor);
+				   wind, t, trunkColor, leafColor, clusterAlpha, childSeed);
 	}
 }
